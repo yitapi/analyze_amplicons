@@ -1,0 +1,8 @@
+[package]
+name = "analyze_amplicon"
+version = "0.1.0"
+authors = ["yitapi <yin.137@gmail.com>"]
+
+[dependencies]
+bio = "*"
+itertools = "0.5.8"
