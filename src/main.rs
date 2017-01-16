@@ -182,7 +182,6 @@ fn main() {
                 break;
             }
         }
-        let seq2 =String::from_utf8_lossy(&read2.seq()[0 .. trim]);
 
         if trim < 80 {
             println!("# {}: Useful read too short. Skipping. L = {}", num_records, trim);
@@ -190,6 +189,9 @@ fn main() {
             num_records += 1;
             continue;
         }
+
+        let seq2 =String::from_utf8_lossy(&read2.seq()[0 .. trim]);
+
 
         // extract barcodes
         let bc1 = &seq1[0..8];
@@ -204,6 +206,13 @@ fn main() {
         let alignment = aligner.local(wt_pac, &seq2_rc.as_bytes());
 
         let mut pac_start = alignment.ystart;
+        if alignment.yend - pac_start < 25 {
+            println!("# {} incomplete pac skip.", description);
+            num_qual_skip += 1;
+            num_records += 1;
+            continue;
+        }
+
         match &seq2_rc[pac_start .. pac_start+5] {
             "GAGAA" => pac_start -= 1,
             "AGAAG" => pac_start -= 2,
