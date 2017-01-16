@@ -3,30 +3,32 @@ extern crate bio;
 extern crate itertools;
 use std::collections::HashMap;
 use std::env;
-use itertools::Itertools;
+use std::error::Error;
+use std::fs::File;
+use std::io::prelude::*;
 use bio::io::fastq;
 use bio::alignment::pairwise::*;
 
-fn check(rec: &fastq::Record, read: &str) -> (u16, Vec<(usize, char, char)>) {
-    let mut distance : u16 = 0;
-    let qual = rec.qual();
-    let mut dif : Vec<(usize, char, char)> = vec![];
-    let mut index : usize = 0;
+// fn check(rec: &fastq::Record, read: &str) -> (u16, Vec<(usize, char, char)>) {
+//     let mut distance : u16 = 0;
+//     let qual = rec.qual();
+//     let mut dif : Vec<(usize, char, char)> = vec![];
+//     let mut index : usize = 0;
 
-    for (i, j) in String::from_utf8_lossy(rec.seq()).chars().dropping(8).zip(read.chars()) {
-        if qual[index] > 63 {
-            if i != j {
-                dif.push((index, i, j));
-                distance += 1;
-            }
-        }
-        else {
-            distance += 1;
-        }
-        index += 1;
-    }
-    (distance, dif)
-}
+//     for (i, j) in String::from_utf8_lossy(rec.seq()).chars().dropping(8).zip(read.chars()) {
+//         if qual[index] > 63 {
+//             if i != j {
+//                 dif.push((index, i, j));
+//                 distance += 1;
+//             }
+//         }
+//         else {
+//             distance += 1;
+//         }
+//         index += 1;
+//     }
+//     (distance, dif)
+// }
 
 fn reverse_complement(seq: &str) -> String {
     seq.chars()
@@ -47,6 +49,62 @@ fn qual_check(a: &[u8], b: &[u8]) -> bool {
         return false;
     }
     return true
+}
+
+fn data_stat(results: &HashMap<String, (String, Vec<u8>)>, output_file: &str) -> Result<String, Box<Error>> {
+
+    // statistics on the datasets
+    let wt_pac = "AGAGAAGATTTATCTGAAGTCGTTACGCGAG";
+    let mut diff_counts : [usize; 31] = [0; 31];
+    let mut diff_freq : [usize; 31] = [0; 31];
+    let mut output = try!(File::create(output_file));
+    let mut pac_stat = HashMap::new();
+    for (_, pac_info) in results {
+
+        let ref pac = pac_info.0;
+        let ref qual = pac_info.1;
+
+        // mutation statistics
+        let mut index = 0;
+        let mut distance = 0;
+
+        for (i, j) in pac.chars().zip(wt_pac.chars()) {
+            if qual[index] > 63 && i != j {
+                diff_freq[index] += 1;
+                distance += 1;
+            }
+            index += 1;
+        }
+        diff_counts[distance] += 1;
+        if distance > 8 {
+            println!("# {} {}", distance,  pac);
+        }
+
+        // pac sites statistics
+        if pac_stat.contains_key(pac) {
+            *pac_stat.get_mut(pac).unwrap() += 1;
+        }
+        else {
+            pac_stat.insert(pac, 1);
+        }
+
+    }
+    println!("# Overall statistics:");
+    for i in 0..31 {
+        println!("# {}\t{}", i, diff_counts[i]);
+    }
+
+    println!("# Per-base statistics:");
+    for i in 0..31 {
+        println!("# {}\t{}", i, diff_freq[i]);
+    }
+
+    try!(write!(output, "{}", "# pac counts:\n"));
+    for (pac, counts) in &pac_stat {
+        try!(write!(output, "{} {}\n", pac, counts));
+    }
+
+    Ok("Done".into())
 }
 
 fn main() {
@@ -126,7 +184,7 @@ fn main() {
         }
         let seq2 =String::from_utf8_lossy(&read2.seq()[0 .. trim]);
 
-        if trim < 70 {
+        if trim < 80 {
             println!("# {}: Useful read too short. Skipping. L = {}", num_records, trim);
             num_qual_skip += 1;
             num_records += 1;
@@ -146,7 +204,7 @@ fn main() {
         let alignment = aligner.local(wt_pac, &seq2_rc.as_bytes());
 
         let mut pac_start = alignment.ystart;
-        match &seq2_rc[pac_start .. pac_start+6] {
+        match &seq2_rc[pac_start .. pac_start+5] {
             "GAGAA" => pac_start -= 1,
             "AGAAG" => pac_start -= 2,
             "GAAGA" => pac_start -= 3,
@@ -186,37 +244,5 @@ fn main() {
     println!("# {} low quality reads;", num_qual_skip);
     println!("# {} possible duplicates.", num_duplicates);
 
-
-    let wt_pac = "AGAGAAGATTTATCTGAAGTCGTTACGCGAG";
-    let mut diff_counts : [usize; 31] = [0; 31];
-    let mut diff_freq : [usize; 31] = [0; 31];
-    for (bc, pac_info) in results.iter() {
-        let mut index = 0;
-        let ref pac = pac_info.0;
-        let ref qual = pac_info.1;
-        let mut distance = 0;
-
-        for (i, j) in pac.chars().zip(wt_pac.chars()) {
-            if qual[index] > 63 && i != j {
-                diff_freq[index] += 1;
-                distance += 1;
-            }
-            index += 1;
-        }
-        diff_counts[distance] += 1;
-        if distance > 8 {
-            println!("{} {}", distance,  pac);
-        }
-    }
-    println!("Overall statistics:");
-    for i in 0..31 {
-        println!("{}\t{}", i, diff_counts[i])
-    }
-
-    println!("Per-base statistics:");
-    for i in 0..31 {
-        println!("{}\t{}", i, diff_freq[i])
-    }
-
-
+    data_stat(&results, &args[4]);
 }
