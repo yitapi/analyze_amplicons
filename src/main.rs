@@ -214,9 +214,11 @@ fn main() {
         }
 
         match &seq2_rc[pac_start .. pac_start+5] {
-            "GAGAA" => pac_start = if pac_start > 1 {pac_start - 1} else {pac_start},
-            "AGAAG" => pac_start = if pac_start > 2 {pac_start - 2} else {pac_start},
-            "GAAGA" => pac_start = if pac_start > 3 {pac_start - 3} else {pac_start},
+            "GAGAA" => pac_start = if pac_start >= 1 {pac_start - 1} else {0},
+            "AGAAG" => pac_start = if pac_start >= 2 {pac_start - 2} else {0},
+            "GAAGA" => pac_start = if pac_start >= 3 {pac_start - 3} else {0},
+            "AAGAT" => pac_start = if pac_start >= 4 {pac_start - 4} else {0},
+            "AGATT" => pac_start = if pac_start >= 5 {pac_start - 5} else {0},
             _ => pac_start += 0,
         }
         let pac_end = if pac_start + 31 < trim {pac_start + 31} else { alignment.yend };
