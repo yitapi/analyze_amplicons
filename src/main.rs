@@ -99,9 +99,16 @@ fn data_stat(results: &HashMap<String, (String, Vec<u8>)>, output_file: &str) ->
         println!("# {}\t{}", i, diff_freq[i]);
     }
 
-    try!(write!(output, "{}", "# pac counts:\n"));
+    //try!(write!(output, "{}", "# pac counts:\n"));
+
     for (pac, counts) in &pac_stat {
-        try!(write!(output, "{} {}\n", pac, counts));
+        let mut hamming = 0;
+        for (i, j) in pac.chars().zip(wt_pac.chars()) {
+            if i != j {
+                hamming += 1;
+            }
+        }
+        try!(write!(output, "{} {} {}\n", pac, hamming, counts));
     }
 
     Ok("Done".into())
@@ -129,6 +136,7 @@ fn main() {
         let desc = read1.id().unwrap().split(":").skip(5).collect::<Vec<&str>>();
         let description = desc[0].to_string() + ":" + desc[1];
         let mut trim = 124;
+        let mut am = "".to_string();
 
         for i in 0..119 {
             if qual_check(&read1.qual()[i .. i+5], &[63, 63, 63, 63, 63]) {
@@ -145,6 +153,20 @@ fn main() {
             continue;
         }
 
+        if &args[3] == "M" {
+            if trim < 33 {
+                println!("# {}: Useful read too short for M. Skipping. L = {}", num_records, trim);
+            }
+            let am_codon = String::from_utf8_lossy(&read1.seq()[30 .. 33]);
+            println!("# am_codon = {}", am_codon);
+            if am_codon == "GCA" {
+                am = "WT".to_string();
+            }
+            else if am_codon == "GCG" {
+                am = "AM".to_string();
+            }
+        }
+
         // average quality filtering
         //let avg_qual = read1.qual().iter().fold(0, |a, &b| a as u32 + b as u32);
         //if avg_qual < (125 * 30) { // corresponding to an average quality of 20
@@ -157,9 +179,9 @@ fn main() {
         let score = |a: u8, b: u8| if a == b {1i32} else {-1i32};
         let mut aligner = Aligner::with_capacity(seq1.len(), wt_read1.len(), -5, -1, &score);
         let alignment = aligner.global(&seq1[8..seq1.len()].as_bytes(), wt_read1);
-        if alignment.score < trim as i32 - 30 {
+        if alignment.score < (2 * trim as i32 - 133 - 30) {
             println!("# {} {}: wrong read 1 skipping", num_records, description);
-            println!("# {}", &seq1[8..seq1.len()]);
+            println!("# {} {}", &seq1[8..seq1.len()], alignment.score);
             num_records += 1;
             num_qual_skip += 1;
             continue;
@@ -235,7 +257,11 @@ fn main() {
         let pac = String::from_utf8_lossy(&seq2_rc[pac_start .. pac_end]
                                           .as_bytes()).into_owned();
 
-        println!("{} {} {}", num_records, bc, pac);
+        if &args[3] == "M" {
+            println!("{} {} {} {}", num_records, bc, pac, am);
+        } else {
+            println!("{} {} {}", num_records, bc, pac);
+        }
 
         if results.contains_key(&bc) {
             if results[&bc].0 == pac {
