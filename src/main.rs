@@ -2,6 +2,7 @@
 extern crate bio;
 extern crate itertools;
 use std::collections::HashMap;
+use std::cmp;
 use std::env;
 use std::error::Error;
 use std::fs::File;
@@ -138,10 +139,10 @@ fn main() {
         let mut trim = 124;
         let mut am = "".to_string();
 
-        for i in 0..119 {
+        for i in 0..120 {
             if qual_check(&read1.qual()[i .. i+5], &[63, 63, 63, 63, 63]) {
                 trim = i+1;
-                println!("# {} {}: Read 1 trimmed at {}.", num_records, description, i);
+                println!("# {} {}: Read 1 trimmed at {}.", num_records, description, trim);
                 break;
             }
         }
@@ -152,27 +153,6 @@ fn main() {
             num_records += 1;
             continue;
         }
-
-        if &args[3] == "M" {
-            if trim < 33 {
-                println!("# {}: Useful read too short for M. Skipping. L = {}", num_records, trim);
-            }
-            let am_codon = String::from_utf8_lossy(&read1.seq()[30 .. 33]);
-            println!("# am_codon = {}", am_codon);
-            if am_codon == "GCA" {
-                am = "WT".to_string();
-            }
-            else if am_codon == "GCG" {
-                am = "AM".to_string();
-            }
-        }
-
-        // average quality filtering
-        //let avg_qual = read1.qual().iter().fold(0, |a, &b| a as u32 + b as u32);
-        //if avg_qual < (125 * 30) { // corresponding to an average quality of 20
-        //    println!("# low quality read 1 skipping: {}", avg_qual);
-        //    continue;
-        //}
 
         // check if the read is the right read
         let seq1 = String::from_utf8_lossy(&read1.seq()[0 .. trim]);
@@ -186,6 +166,35 @@ fn main() {
             num_qual_skip += 1;
             continue;
         }
+
+        if &args[3] == "M" {
+            if trim < 33 {
+                println!("# {}: Useful read too short for M. Skipping. L = {}", num_records, trim);
+                num_qual_skip += 1;
+                num_records += 1;
+                continue;
+            }
+
+            for i in 0 .. cmp::min(trim-6, 110) {
+                if &seq1[i .. i+5] == "GCGGC" {
+                    match &seq1[i+5 .. i+6] {
+                        "A" => am = "WT".to_string(),
+                        "G" => am = "AM".to_string(),
+                        _ => am = "NA".to_string(),
+                    }
+                    println!("# am_codon = {}", &seq1[i .. i+6]);
+                    break;
+                }
+            }
+        }
+
+        // average quality filtering
+        //let avg_qual = read1.qual().iter().fold(0, |a, &b| a as u32 + b as u32);
+        //if avg_qual < (125 * 30) { // corresponding to an average quality of 20
+        //    println!("# low quality read 1 skipping: {}", avg_qual);
+        //    continue;
+        //}
+
 
         // now deal with read2
         let read2 = record2.unwrap();
@@ -247,15 +256,21 @@ fn main() {
 
         let pac_qual_avg : f32 = qual[pac_start .. pac_end].iter().cloned().map(|x| x as f32).sum::<f32>() / (pac_end - pac_start) as f32;
 
+        let pac = String::from_utf8_lossy(&seq2_rc[pac_start .. pac_end]
+                                          .as_bytes()).into_owned();
+
         if pac_qual_avg < 63.0  {
             println!("# {} {}: pac quality too low ({}).", num_records, description, pac_qual_avg);
+            if &args[3] == "M" {
+                println!("{} {} {} {}", num_records, bc, pac, am);
+            } else {
+                println!("{} {} {}", num_records, bc, pac);
+            }
             num_records += 1;
             num_qual_skip += 1;
             continue;
         }
 
-        let pac = String::from_utf8_lossy(&seq2_rc[pac_start .. pac_end]
-                                          .as_bytes()).into_owned();
 
         if &args[3] == "M" {
             println!("{} {} {} {}", num_records, bc, pac, am);
