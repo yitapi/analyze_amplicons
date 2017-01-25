@@ -42,6 +42,26 @@ fn hamming(seq1: &str, seq2: &str) -> u32 {
     score
 }
 
+fn ham_mutations(seq1: &str, seq2: &str) -> (u32, String) {
+    let mut score = 0;
+    let mut mutations = "".to_string();
+    let mut n = 1;
+
+    for (i, j) in seq1.chars().zip(seq2.chars()) {
+        if i != j {
+            score += 1;
+            if score == 1 {
+                mutations = mutations + &format!("{}{}", n, i);
+            } else {
+                mutations = mutations + &format!(" {}{}", n, i);
+            }
+        }
+        n += 1;
+    }
+    (score, mutations)
+
+}
+
 fn reverse_complement(seq: &str) -> String {
     seq.chars()
         .map(|t| match t {
@@ -302,7 +322,8 @@ fn main() {
 
 
         if &args[3] == "M" {
-            println!("{} {} {} {} {}", num_records, bc, pac, am, hamming(&pac, &wt_pac));
+            let ham_mut = ham_mutations(&pac, &wt_pac);
+            println!("{},{},{},{},{},{}", num_records, bc, pac, am, ham_mut.0, ham_mut.1);
         } else {
             println!("{} {} {}", num_records, bc, pac);
         }
