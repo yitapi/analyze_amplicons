@@ -193,7 +193,6 @@ fn main() {
             }
 
             if am == " " {
-                println!("test;");
                 for i in 0 .. trim-6 {
                     if &seq1[i .. i+5] == "GCGGC" {
                         match &seq1[i+5 .. i+6] {
