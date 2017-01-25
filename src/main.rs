@@ -9,6 +9,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use bio::io::fastq;
 use bio::alignment::pairwise::*;
+use bio::alignment::AlignmentOperation;
 
 // fn check(rec: &fastq::Record, read: &str) -> (u16, Vec<(usize, char, char)>) {
 //     let mut distance : u16 = 0;
@@ -30,6 +31,16 @@ use bio::alignment::pairwise::*;
 //     }
 //     (distance, dif)
 // }
+
+fn hamming(seq1: &str, seq2: &str) -> u32 {
+    let mut score = 0;
+    for (i, j) in seq1.chars().zip(seq2.chars()) {
+        if i != j {
+            score += 1;
+        }
+    }
+    score
+}
 
 fn reverse_complement(seq: &str) -> String {
     seq.chars()
@@ -103,13 +114,7 @@ fn data_stat(results: &HashMap<String, (String, Vec<u8>)>, output_file: &str) ->
     //try!(write!(output, "{}", "# pac counts:\n"));
 
     for (pac, counts) in &pac_stat {
-        let mut hamming = 0;
-        for (i, j) in pac.chars().zip(wt_pac.chars()) {
-            if i != j {
-                hamming += 1;
-            }
-        }
-        try!(write!(output, "{} {} {}\n", pac, hamming, counts));
+        try!(write!(output, "{} {} {}\n", pac, hamming(&pac, &wt_pac), counts));
     }
 
     Ok("Done".into())
@@ -137,7 +142,7 @@ fn main() {
         let desc = read1.id().unwrap().split(":").skip(5).collect::<Vec<&str>>();
         let description = desc[0].to_string() + ":" + desc[1];
         let mut trim = 124;
-        let mut am = "".to_string();
+        let mut am = " ".to_string();
 
         for i in 0..120 {
             if qual_check(&read1.qual()[i .. i+5], &[63, 63, 63, 63, 63]) {
@@ -167,6 +172,8 @@ fn main() {
             continue;
         }
 
+        // identifying AM/WT 
+
         if &args[3] == "M" {
             if trim < 33 {
                 println!("# {}: Useful read too short for M. Skipping. L = {}", num_records, trim);
@@ -175,15 +182,28 @@ fn main() {
                 continue;
             }
 
-            for i in 0 .. cmp::min(trim-6, 110) {
-                if &seq1[i .. i+5] == "GCGGC" {
-                    match &seq1[i+5 .. i+6] {
-                        "A" => am = "WT".to_string(),
-                        "G" => am = "AM".to_string(),
-                        _ => am = "NA".to_string(),
+            // Allowing 1 mismatch
+            if hamming(&seq1[27 .. 32], "GCGGC") < 2 {
+                match &seq1[32 .. 33] {
+                    "A" => am = "WT".to_string(),
+                    "G" => am = "AM".to_string(),
+                    _ => am = " ".to_string(),
+                }
+                println!("# 1 am_codon = {}", &seq1[27 .. 33]);
+            }
+
+            if am == " " {
+                println!("test;");
+                for i in 0 .. trim-6 {
+                    if &seq1[i .. i+5] == "GCGGC" {
+                        match &seq1[i+5 .. i+6] {
+                            "A" => am = "WT".to_string(),
+                            "G" => am = "AM".to_string(),
+                            _ => am = " ".to_string(),
+                        }
+                        println!("# 2 am_codon = {}", &seq1[i .. i+6]);
+                        break;
                     }
-                    println!("# am_codon = {}", &seq1[i .. i+6]);
-                    break;
                 }
             }
         }
@@ -230,41 +250,51 @@ fn main() {
         let bc = bc1.to_string() + bc2;
 
         // check the pac sequences
-        let wt_pac = b"AGAGAAGATTTATCTGAAGTCGTTACGCGAG";
+        let wt_pac = "AGAGAAGATTTATCTGAAGTCGTTACGCGAG";
         let seq2_rc = reverse_complement(&seq2);
         let qual : Vec<u8> = read2.qual().iter().cloned().rev().collect();
-        let mut aligner = Aligner::with_capacity(wt_pac.len(), seq2.len(), -5, -1, &score);
-        let alignment = aligner.local(wt_pac, &seq2_rc.as_bytes());
 
-        let mut pac_start = alignment.ystart;
-        if alignment.yend - pac_start < 25 {
-            println!("# {} incomplete pac skip.", description);
-            num_qual_skip += 1;
+        let mut pac_start = 0;
+        let mut min_score = 31;
+        for i in 8 .. trim - 31 {
+            let score = hamming(&seq2_rc[i .. i+31], &wt_pac);
+            if score < min_score {
+                min_score = score;
+                pac_start = i;
+            }
+        }
+        let pac_end = cmp::min(trim, pac_start+31);
+
+        if pac_end - pac_start < 25 {
+            println!("# {} {}: pac too short ({}).", num_records, description, pac_end-pac_start);
             num_records += 1;
+            num_qual_skip += 1;
             continue;
         }
 
-        match &seq2_rc[pac_start .. pac_start+5] {
-            "GAGAA" => pac_start = if pac_start >= 1 {pac_start - 1} else {0},
-            "AGAAG" => pac_start = if pac_start >= 2 {pac_start - 2} else {0},
-            "GAAGA" => pac_start = if pac_start >= 3 {pac_start - 3} else {0},
-            "AAGAT" => pac_start = if pac_start >= 4 {pac_start - 4} else {0},
-            "AGATT" => pac_start = if pac_start >= 5 {pac_start - 5} else {0},
-            _ => pac_start += 0,
+        if min_score > 4 {
+            let mut aligner = Aligner::with_capacity(wt_pac.len(), seq2.len(), -1, -1, &score);
+            let alignment = aligner.local(wt_pac.as_bytes(), &seq2_rc.as_bytes());
+
+            if alignment.operations.into_iter().any(|x| x == AlignmentOperation::Ins || x == AlignmentOperation::Del) {
+                println!("# {} {}: pac contain indels.", num_records, description);
+                num_records += 1;
+                num_qual_skip += 1;
+                continue;
+            }
         }
-        let pac_end = if pac_start + 31 < trim {pac_start + 31} else { alignment.yend };
 
         let pac_qual_avg : f32 = qual[pac_start .. pac_end].iter().cloned().map(|x| x as f32).sum::<f32>() / (pac_end - pac_start) as f32;
 
         let pac = String::from_utf8_lossy(&seq2_rc[pac_start .. pac_end]
                                           .as_bytes()).into_owned();
 
-        if pac_qual_avg < 63.0  {
-            println!("# {} {}: pac quality too low ({}).", num_records, description, pac_qual_avg);
+        if pac_qual_avg < 63.0 || pac.chars().any(|x| x == 'N') {
+            println!("# {} {}: pac quality too low ({}) or contains N.", num_records, description, pac_qual_avg);
             if &args[3] == "M" {
-                println!("{} {} {} {}", num_records, bc, pac, am);
+                println!("# {} {} {} {}", num_records, bc, pac, am);
             } else {
-                println!("{} {} {}", num_records, bc, pac);
+                println!("# {} {} {}", num_records, bc, pac);
             }
             num_records += 1;
             num_qual_skip += 1;
@@ -273,7 +303,7 @@ fn main() {
 
 
         if &args[3] == "M" {
-            println!("{} {} {} {}", num_records, bc, pac, am);
+            println!("{} {} {} {} {}", num_records, bc, pac, am, hamming(&pac, &wt_pac));
         } else {
             println!("{} {} {}", num_records, bc, pac);
         }
@@ -284,7 +314,7 @@ fn main() {
                 num_duplicates += 1;
             }
             else {
-                println!("# {}: possible sequencing error? {} {}", num_records, &pac, String::from_utf8_lossy(wt_pac));
+                println!("# {}: possible sequencing error? {} {}", num_records, &pac, results[&bc].0);
             }
         }
         else {
