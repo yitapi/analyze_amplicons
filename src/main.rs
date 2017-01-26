@@ -275,7 +275,7 @@ fn main() {
 
         let mut pac_start = 0;
         let mut min_score = 31;
-        for i in 8 .. trim - 31 {
+        for i in 0 .. trim - 31 {
             let score = hamming(&seq2_rc[i .. i+31], &wt_pac);
             if score < min_score {
                 min_score = score;
@@ -291,12 +291,16 @@ fn main() {
             continue;
         }
 
+        let pac = String::from_utf8_lossy(&seq2_rc[pac_start .. pac_end]
+                                          .as_bytes()).into_owned();
+
         if min_score > 4 {
             let mut aligner = Aligner::with_capacity(wt_pac.len(), seq2.len(), -1, -1, &score);
             let alignment = aligner.local(wt_pac.as_bytes(), &seq2_rc.as_bytes());
 
-            if alignment.operations.into_iter().any(|x| x == AlignmentOperation::Ins || x == AlignmentOperation::Del) {
+            if alignment.operations.iter().any(|&x| x == AlignmentOperation::Ins || x == AlignmentOperation::Del) {
                 println!("# {} {}: pac contain indels.", num_records, description);
+                println!("{}", alignment.pretty(wt_pac.as_bytes(), &seq2_rc.as_bytes() ));
                 num_records += 1;
                 num_qual_skip += 1;
                 continue;
@@ -304,9 +308,6 @@ fn main() {
         }
 
         let pac_qual_avg : f32 = qual[pac_start .. pac_end].iter().cloned().map(|x| x as f32).sum::<f32>() / (pac_end - pac_start) as f32;
-
-        let pac = String::from_utf8_lossy(&seq2_rc[pac_start .. pac_end]
-                                          .as_bytes()).into_owned();
 
         if pac_qual_avg < 63.0 || pac.chars().any(|x| x == 'N') {
             println!("# {} {}: pac quality too low ({}) or contains N.", num_records, description, pac_qual_avg);

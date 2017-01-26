@@ -4,5 +4,5 @@ version = "0.1.0"
 authors = ["yitapi <yin.137@gmail.com>"]
 
 [dependencies]
-bio = "*"
+bio = { git = "https://github.com/yitapi/rust-bio" }
 itertools = "0.5.8"
